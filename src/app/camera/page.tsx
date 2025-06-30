@@ -27,6 +27,7 @@ export default function CameraPage() {
           <button
             type="button"
             className="w-full py-2 px-4 bg-black text-white rounded-lg font-semibold hover:bg-gray-700 transition"
+            onClick={() => window.location.href = '/camera/fail'}
           >
             Царай таниулах
           </button>
