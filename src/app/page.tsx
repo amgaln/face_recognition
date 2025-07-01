@@ -1,7 +1,9 @@
+'use client'
 import Image from "next/image";
+import LiveDetection from "./LiveDetection";
 
 export default function Home() {
   return (
-    <h1>hi</h1>
+    <LiveDetection />
   );
 }
