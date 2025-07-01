@@ -1,9 +1,8 @@
-'use client'
+'use client';
 
 import React, { useRef, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Webcam from 'react-webcam';
-import { rekognition } from '../../../config/aws-config'; // Adjust path as needed
 
 const CameraPage: React.FC = () => {
   const webcamRef = useRef<Webcam>(null);
@@ -16,44 +15,31 @@ const CameraPage: React.FC = () => {
   const [isWebcamReady, setIsWebcamReady] = useState<boolean>(false);
   const [consistentFaceCount, setConsistentFaceCount] = useState<number>(0);
 
-  // Check camera permission
+  // Check camera permission on mount
   useEffect(() => {
-    console.log('Checking camera permission...');
     const checkPermission = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        console.log('Camera permission granted');
         setHasPermission(true);
         stream.getTracks().forEach((track) => track.stop());
       } catch (error) {
         console.error('Camera permission error:', error);
         setHasPermission(false);
-        setStatusMessage('Камерын зөвшөөрөл өгнө үү. Камерын тохиргоогоо шалгана уу.');
-        setTimeout(() => {
-          console.log('Redirecting to /camera/fail due to permission denial');
-          router.push('/camera/fail');
-        }, 3000);
+        setStatusMessage('Камерын зөвшөөрөл өгнө үү.');
+        setTimeout(() => router.push('/camera/fail'), 3000);
       }
     };
     checkPermission();
   }, [router]);
 
-  // Start face detection and timeout
+  // Set up face detection interval and timeout
   useEffect(() => {
-    if (!hasPermission || capture || !isWebcamReady) {
-      console.log('Face detection not started: hasPermission=', hasPermission, 'capture=', capture, 'isWebcamReady=', isWebcamReady);
-      return;
-    }
+    if (!hasPermission || capture || !isWebcamReady) return;
 
-    console.log('Starting face detection interval...');
     const resetTimeout = () => {
-      if (timeoutRef.current) {
-        console.log('Clearing previous timeout');
-        clearTimeout(timeoutRef.current);
-      }
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
         if (!capture) {
-          console.log('30-second timeout reached, no face captured');
           setStatusMessage('30 секундын дотор царай бүртгэгдээгүй.');
           router.push('/camera/fail');
         }
@@ -66,171 +52,151 @@ const CameraPage: React.FC = () => {
     }, 1000);
 
     return () => {
-      console.log('Cleaning up interval and timeout');
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, [hasPermission, capture, isWebcamReady]);
 
+  // Detect faces using AWS Rekognition
   const detectFaces = async (resetTimeout: () => void) => {
-    if (capture || !webcamRef.current || !isWebcamReady) {
-      console.log('Skipping detection: capture=', capture, 'webcamRef=', !!webcamRef.current, 'isWebcamReady=', isWebcamReady);
-      return;
-    }
+    if (capture || !webcamRef.current || !isWebcamReady) return;
 
-    console.log('Attempting screenshot...');
-    let imageSrc: string | null = null;
-    for (let i = 0; i < 3; i++) {
-      imageSrc = webcamRef.current.getScreenshot();
-      if (imageSrc) break;
-      console.warn(`Screenshot attempt ${i + 1} failed`);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-
+    const imageSrc = webcamRef.current.getScreenshot();
     if (!imageSrc) {
-      console.error('Failed to capture screenshot after retries');
-      setStatusMessage('Камераас зураг авах боломжгүй. Камер холбогдсон эсэхээ шалгана уу.');
-      router.push('/camera/fail');
+      console.error('Failed to capture screenshot');
+      setStatusMessage('Зургийг авахад алдаа гарлаа.');
       return;
     }
 
     const base64Image = imageSrc.split(',')[1];
-    const params = {
-      Image: { Bytes: Buffer.from(base64Image, 'base64') },
-      Attributes: ['ALL'] as ('ALL' | 'DEFAULT')[],
-    };
+    if (!base64Image) {
+      console.error('Invalid base64 image data');
+      setStatusMessage('Зургийн өгөгдөл буруу байна.');
+      return;
+    }
 
     try {
-      console.log('Sending image to Rekognition');
-      const response = await rekognition.detectFaces(params).promise();
-      console.log('Rekognition response:', JSON.stringify(response, null, 2));
+      console.log('Sending face detection request to /api/rekognition');
+      const res = await fetch('/api/rekognition', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base64Image }),
+      });
 
-      const faceDetails = response.FaceDetails;
-      if (faceDetails && Array.isArray(faceDetails) && faceDetails.length === 1 && faceDetails[0].Confidence && faceDetails[0].Confidence > 90) {
-        console.log('Valid face detected, confidence:', faceDetails[0].Confidence);
-        setStatusMessage('Царай илрэв! Байрлалаа хадгал.');
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('API response error:', res.status, res.statusText, errorText);
+        throw new Error(`Face detection failed: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      const faceDetails = data.FaceDetails;
+
+      if (faceDetails?.length === 1 && faceDetails[0].Confidence > 90) {
+        setStatusMessage('Царай илрэв!');
         setConsistentFaceCount((prev) => {
-          const newCount = prev + 1;
-          console.log('Consistent face count:', newCount);
-          if (newCount >= 3) {
-            console.log('3 consistent detections, triggering capture');
+          const count = prev + 1;
+          if (count >= 3) {
             setCapture(true);
             performLivenessCapture();
           }
-          return newCount;
+          return count;
         });
-        resetTimeout(); // Extend timeout on valid detection
+        resetTimeout();
       } else {
-        console.log('Invalid detection: FaceDetails length=', faceDetails?.length ?? 0);
-        setStatusMessage(
-          faceDetails && faceDetails.length > 1
-            ? 'Зөвхөн нэг царай илрүүлнэ үү.'
-            : 'Царай илрээгүй.'
-        );
-        if (!faceDetails || faceDetails.length === 0) {
-          console.log('No face detected, redirecting to /camera/fail');
-          router.push('/camera/fail');
-        }
+        setStatusMessage(faceDetails?.length > 1 ? 'Зөвхөн нэг царай илрүүлнэ үү.' : 'Царай илрээгүй.');
         setConsistentFaceCount(0);
       }
-    } catch (error: any) {
-      console.error('Rekognition error:', error.message, error.stack);
-      setStatusMessage('Царай илрүүлэхэд алдаа гарлаа. Дахин оролдоно уу.');
-      setConsistentFaceCount(0);
+    } catch (err) {
+      console.error('Face detection error:', err);
+      setStatusMessage('Царай илрүүлэхэд алдаа гарлаа.');
       router.push('/camera/fail');
     }
   };
 
+  // Perform final liveness capture
   const performLivenessCapture = useCallback(async () => {
-    if (!webcamRef.current || !isWebcamReady) {
-      console.error('Webcam not available for final capture');
-      setStatusMessage('Вэбкам байхгүй байна.');
-      router.push('/camera/fail');
-      return;
-    }
+    if (!webcamRef.current || !isWebcamReady) return;
 
-    console.log('Attempting final capture screenshot...');
     const imageSrc = webcamRef.current.getScreenshot();
     if (!imageSrc) {
-      console.error('Final screenshot failed');
-      setStatusMessage('Эцсийн зураг авах боломжгүй.');
+      console.error('Failed to capture screenshot for liveness');
+      setStatusMessage('Зургийг авахад алдаа гарлаа.');
       router.push('/camera/fail');
       return;
     }
 
     const base64Image = imageSrc.split(',')[1];
-    const params = {
-      Image: { Bytes: Buffer.from(base64Image, 'base64') },
-      Attributes: ['ALL'] as ('ALL' | 'DEFAULT')[],
-    };
+    if (!base64Image) {
+      console.error('Invalid base64 image data for liveness');
+      setStatusMessage('Зургийн өгөгдөл буруу байна.');
+      router.push('/camera/fail');
+      return;
+    }
 
     try {
-      console.log('Performing final liveness capture');
-      const response = await rekognition.detectFaces(params).promise();
-      console.log('Final capture response:', JSON.stringify(response, null, 2));
-      const faceDetails = response.FaceDetails;
-      if (faceDetails && Array.isArray(faceDetails) && faceDetails.length === 1 && faceDetails[0].Confidence && faceDetails[0].Confidence > 90) {
-        console.log('Liveness capture successful');
+      console.log('Sending liveness capture request to /api/rekognition');
+      const res = await fetch('/api/rekognition', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base64Image }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Liveness API response error:', res.status, res.statusText, errorText);
+        throw new Error(`Final capture failed: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      const faceDetails = data.FaceDetails;
+
+      if (faceDetails?.length === 1 && faceDetails[0].Confidence > 90) {
         setStatusMessage('Царай амжилттай бүртгэгдлээ!');
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        setTimeout(() => {
-          console.log('Redirecting to /camera/success');
-          router.push('/camera/success');
-        }, 1000);
+        setTimeout(() => router.push('/camera/success'), 1000);
       } else {
-        console.log('Final capture failed: FaceDetails length=', faceDetails?.length ?? 0);
         setStatusMessage('Царайны баталгаажуулалт амжилтгүй боллоо.');
         router.push('/camera/fail');
       }
-    } catch (error: any) {
-      console.error('Final capture error:', error.message, error.stack);
+    } catch (err) {
+      console.error('Liveness error:', err);
       setStatusMessage('Баталгаажуулалтын явцад алдаа гарлаа.');
       router.push('/camera/fail');
     }
-  }, [webcamRef, router, isWebcamReady]);
+  }, [isWebcamReady, router]);
 
   return (
-    <div className="flex flex-col justify-center items-center h-screen relative space-y-6">
-      <h2 className="text-center w-full mb-4 font-bold text-2xl">Царай таниулах</h2>
-      <ul className="w-full max-w-md space-y-4">
-        <li className="flex justify-center items-center">
-          <div className="relative">
-            <Webcam
-              audio={false}
-              ref={webcamRef}
-              screenshotFormat="image/jpeg"
-              className="w-72 h-96 rounded-full object-cover border-4 border-black shadow-lg bg-white"
-              style={{
-                transform: 'scaleX(-1)',
-                borderRadius: '60% 60% 70% 70% / 55% 55% 80% 80%',
-              }}
-              onUserMedia={() => {
-                console.log('Webcam initialized successfully');
-                setIsWebcamReady(true);
-                setStatusMessage('Царайгаа камерт ойртуулна уу.');
-              }}
-              onUserMediaError={(error) => {
-                console.error('Webcam initialization error:', error);
-                setIsWebcamReady(false);
-                setHasPermission(false);
-                setStatusMessage('Вэбкамын алдаа. Камер холбогдсон эсэхээ шалгана уу.');
-                setTimeout(() => {
-                  console.log('Redirecting to /camera/fail due to webcam error');
-                  router.push('/camera/fail');
-                }, 3000);
-              }}
-            />
-            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-center text-white text-sm bg-black bg-opacity-50 px-4 py-2 rounded w-full">
-              <span>{statusMessage}</span>
-            </div>
-          </div>
-        </li>
-        <li className="text-center w-full mb-4 text-gray-500">{statusMessage}</li>
-        <li className="flex flex-row justify-between text-sm text-gray-500">
-          <span>Камерын төлөв: {hasPermission === null ? 'Хүлээгдэж байна' : hasPermission ? 'Зөвшөөрөгдсөн' : 'Татгалзсан'}</span>
-          <span>Барилтын төлөв: {capture ? 'Бүртгэгдсэн' : isWebcamReady && hasPermission ? 'Боловсруулж байна' : 'Хүлээж байна'}</span>
-        </li>
-      </ul>
+    <div className="flex flex-col justify-center items-center h-screen space-y-6">
+      <h2 className="text-center text-2xl font-bold">Царай таниулах</h2>
+      <div className="relative">
+        <Webcam
+          ref={webcamRef}
+          audio={false}
+          screenshotFormat="image/jpeg"
+          className="w-72 h-96 rounded-full object-cover border-4 border-black"
+          style={{
+            transform: 'scaleX(-1)',
+            borderRadius: '60% 60% 70% 70% / 55% 55% 80% 80%',
+          }}
+          onUserMedia={() => {
+            setIsWebcamReady(true);
+            setStatusMessage('Царайгаа камерт ойртуулна уу.');
+          }}
+          onUserMediaError={() => {
+            setIsWebcamReady(false);
+            setHasPermission(false);
+            setStatusMessage('Камер холбогдсон эсэхээ шалгана уу.');
+            setTimeout(() => router.push('/camera/fail'), 3000);
+          }}
+        />
+        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white bg-black bg-opacity-50 px-4 py-2 rounded text-sm">
+          {statusMessage}
+        </div>
+      </div>
+      <p className="text-sm text-gray-500">
+        Камерын төлөв: {hasPermission === null ? 'Хүлээж байна' : hasPermission ? 'Зөвшөөрсөн' : 'Татгалзсан'}
+      </p>
     </div>
   );
 };
