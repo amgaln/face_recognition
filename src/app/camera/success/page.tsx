@@ -3,7 +3,7 @@
 export default function CameraFailPage() {
     return (
         <div className="flex flex-col justify-center items-center h-screen relative space-y-6">
-            <h2 className="text-center w-full mb-4 font-bold text-green-600">Царай танит амжилттай боллоо</h2>
+            <h2 className="text-center w-full mb-4 font-bold text-green-600">Царай танилт амжилттай боллоо</h2>
             <ul className="w-full max-w-md space-y-4">
                 <li className="flex justify-center items-center">
                     <div className="w-72 h-96 rounded-full border-4 border-green-600 bg-gray-100 flex items-center justify-center shadow-lg"
@@ -15,7 +15,7 @@ export default function CameraFailPage() {
                     </div>
                 </li>
                 <li className="text-center w-full mb-4 text-gray-500">
-                    Царайг таньж чадсангүй. Дахин оролдоно уу.
+                    Царайг амжилттай танилаа. Та дараагийн алхам руу шилжиж байна.
                 </li>
                 <li>
                     <button

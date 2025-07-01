@@ -10,7 +10,6 @@ const CameraPage: React.FC = () => {
   const router = useRouter();
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const lastAlertRef = useRef<number>(0); // Track time of last alert
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('Царайгаа камерт ойртуулна уу.');
   const [capture, setCapture] = useState<boolean>(false);
@@ -91,6 +90,7 @@ const CameraPage: React.FC = () => {
     if (!imageSrc) {
       console.error('Failed to capture screenshot after retries');
       setStatusMessage('Камераас зураг авах боломжгүй. Камер холбогдсон эсэхээ шалгана уу.');
+      router.push('/camera/fail');
       return;
     }
 
@@ -125,16 +125,11 @@ const CameraPage: React.FC = () => {
         setStatusMessage(
           faceDetails && faceDetails.length > 1
             ? 'Зөвхөн нэг царай илрүүлнэ үү.'
-            : 'Царай илрээгүй. Царайгаа камерт ойртуулна уу.'
+            : 'Царай илрээгүй.'
         );
-        // Show alert only if no face detected and 5 seconds have passed since last alert
         if (!faceDetails || faceDetails.length === 0) {
-          const now = Date.now();
-          if (now - lastAlertRef.current >= 5000) {
-            alert('Царай илрээгүй. Царайгаа камерт ойртуулна уу.');
-            lastAlertRef.current = now;
-            console.log('No face alert shown at:', new Date(now).toISOString());
-          }
+          console.log('No face detected, redirecting to /camera/fail');
+          router.push('/camera/fail');
         }
         setConsistentFaceCount(0);
       }
@@ -142,6 +137,7 @@ const CameraPage: React.FC = () => {
       console.error('Rekognition error:', error.message, error.stack);
       setStatusMessage('Царай илрүүлэхэд алдаа гарлаа. Дахин оролдоно уу.');
       setConsistentFaceCount(0);
+      router.push('/camera/fail');
     }
   };
 
@@ -224,7 +220,7 @@ const CameraPage: React.FC = () => {
                 }, 3000);
               }}
             />
-            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center text-white text-sm bg-black bg-opacity-50 px-4 py-2 rounded">
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-center text-white text-sm bg-black bg-opacity-50 px-4 py-2 rounded w-full">
               <span>{statusMessage}</span>
             </div>
           </div>
