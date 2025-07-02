@@ -82,15 +82,28 @@ const CameraPage: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ base64Image }),
       });
-
+      // console.log('Request body:', { base64Image });
       if (!res.ok) {
         const errorText = await res.text();
         console.error('Face detection API error:', res.status, res.statusText, errorText);
         throw new Error(`Face detection failed: ${res.statusText}`);
       }
+      localStorage.setItem('sourceImage', base64Image);
 
       const data = await res.json();
       const faceDetails = data.FaceDetails;
+
+      console.log('Face detection response:', data);
+      console.log('Face details:', faceDetails);
+
+      // Calculate average confidence from all detected faces
+      const avgConfidence =
+        faceDetails && faceDetails.length > 0
+          ? faceDetails.reduce((sum: number, face: any) => sum + (face.Confidence ?? 0), 0) / faceDetails.length
+          : 0;
+      localStorage.setItem('faceConfidence', avgConfidence.toString());
+
+
 
       if (faceDetails?.length === 1 && faceDetails[0].Confidence > 90) {
         setStatusMessage('Царай илрэв!');
@@ -159,7 +172,8 @@ const CameraPage: React.FC = () => {
       if (faceDetails?.length === 1 && faceDetails[0].Confidence > 90) {
         setStatusMessage('Царай амжилттай бүртгэгдлээ!');
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        setTimeout(() => router.push('/camera/success'), 1000);
+        localStorage.setItem('liveFaceBase64', base64Image);
+        setTimeout(() => router.push('/camera/input'), 1000, data.FaceDetails[0]?.Confidence);
       } else {
         setStatusMessage('Царайны баталгаажуулалт амжилтгүй боллоо.');
         router.push('/camera/fail');

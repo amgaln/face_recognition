@@ -7,7 +7,7 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace('/camera'); // Use replace instead of push to avoid adding to history
+    router.replace('/camera');
   }, [router]);
 
   return (
